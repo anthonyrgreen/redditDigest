@@ -1,4 +1,4 @@
- *.hi
- *.chi
- *.chs.h
- .stack-work
+*.hi
+*.chi
+*.chs.h
+.stack-work/
