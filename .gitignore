@@ -2,3 +2,4 @@
 *.chi
 *.chs.h
 .stack-work/
+*.swp

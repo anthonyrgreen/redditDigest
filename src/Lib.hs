@@ -1,7 +1,7 @@
-{-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, LambdaCase #-}
 module Lib
-    ( convertSubredditToHtml
-    , downloadSubredditJsonToFile
+    ( downloadSubredditToHtml
+    , downloadSubredditToJson
     ) where
 
 import Network.HTTP.Conduit
@@ -9,11 +9,10 @@ import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HM
---import Data.Text as L
-import Data.Text.Lazy as L
-import Data.Text.Lazy.Encoding as L
-import Data.Text.Lazy.IO as L
-import Data.Text.Lazy.Builder as L
+import qualified Data.Text.Lazy as T
+import qualified Data.Text.Lazy.Encoding as T
+import qualified Data.Text.Lazy.IO as T
+import qualified Data.Text.Lazy.Builder as T
 import qualified Data.ByteString.Lazy as B
 import Text.StringLike
 import Control.Monad
@@ -23,91 +22,29 @@ import qualified Text.Blaze.Html.Renderer.Utf8 as H
 import qualified Text.Blaze.Html5.Attributes as HA
 import Prelude as P
 import qualified System.IO as IO
-import qualified System.Directory as D
 import HTMLEntities.Decoder
+import Control.Monad.Except
 
 
 data Article = Article {
-    aId :: L.Text
-  , aUrl :: L.Text
-  , aTitle :: L.Text
-  , aAuthor :: L.Text
-  , aText :: L.Text
+    aId :: T.Text
+  , aUrl :: T.Text
+  , aTitle :: T.Text
+  , aAuthor :: T.Text
+  , aText :: T.Text
   , aComments :: [Comment]
   } deriving Show
 
 data Comment = Comment {
-    cId :: L.Text
-  , cAuthor :: L.Text
-  , cText :: L.Text
+    cId :: T.Text
+  , cAuthor :: T.Text
+  , cText :: T.Text
   , cChildren :: [Comment]
   } deriving Show
 
 newtype Listing = Listing {
     lListing :: [Article]
   } deriving Show
-
-instance FromJSON Article where
-  parseJSON = withObject "Article" $ \obj -> do
-    articleData <- obj .: "data"
-    title <- articleData .:? "title" .!= "err: noTitle"
-    text <- articleData .:? "selftext_html" .!= "err: noText"
-    id <- articleData .: "id"
-    url <- articleData .: "url"
-    let title' = L.toLazyText . htmlEncodedText $ title
-    let text' = L.toLazyText . htmlEncodedText $ text
-    return $ Article id url title' undefined text' []
-
-instance FromJSON Listing where
-  parseJSON = withObject "Listing" $ \obj -> do
-    articles <- mapM parseJSON <=< (.: "children") <=< (.: "data") $ obj
-    return $ Listing articles
-
-instance FromJSON Comment where
-  parseJSON = withObject "Comment" $ \obj -> do
-    commentData <- obj .: "data"
-    author <- commentData .:? "author" .!= "err: noAuthor"
-    id <- commentData .: "id"
-    text <- commentData .:? "body_html" .!= "err: noText"
-    repliesField <- commentData .:? "replies" .!= ""
-    children <- case repliesField of
-      String _ -> return []
-      Object repliesObj -> parseCommentsRecursive (Object repliesObj)
-      other -> typeMismatch' "Object" other
-    let text' = L.toLazyText . htmlEncodedText $ text
-    return $ Comment id author text' children
-
-typeMismatch' :: String -- ^ The name of the type you are trying to parse.
-             -> Value  -- ^ The actual value encountered.
-             -> Parser a
-typeMismatch' expected actual =
-    fail $ "when expecting a " ++ expected ++ ", encountered " ++ name
-  where
-    name = case actual of
-             Object x -> "Object instead: " ++ show (HM.toList x)
-             Array _  -> "Array instead:"
-             String _ -> "String instead:"
-             Number _ -> "Number instead:"
-             Bool _   -> "Boolean instead:"
-             Null     -> "Null instead:"
-
-parseCommentsRecursive :: Value -> Parser [Comment]
-parseCommentsRecursive = withObject "commentReplies" $ \obj ->
-  let parseComments = mapM parseJSON <=< (.: "children") <=< (.: "data") in
-  withObject "CommentRoot" parseComments (Object obj)
-
-parseCommentsSection :: Value -> Parser [Comment]
-parseCommentsSection = withArray "CommentListing" $ \arr ->
-  let commentRoot = arr V.! 1 in
-  parseCommentsRecursive commentRoot
-
-populateArticleComments :: Article -> IO (Either String Article)
-populateArticleComments article = do
-  articleContents <- simpleHttp $ articleCommentsUrl (aId article)
-  return $ do
-    articleJson <- eitherDecode articleContents
-    comments <- parseEither parseCommentsSection articleJson
-    return $ article { aComments = comments }
 
 articleHtml :: Article -> H.Html
 articleHtml article = do
@@ -139,19 +76,19 @@ listingHtml listing = do
   H.h2 "Listing:"
   H.div $ mapM_ articleHtml $ lListing listing
 
-makeAnchorLabel :: Text -> Text -> H.Html
+makeAnchorLabel :: T.Text -> T.Text -> H.Html
 makeAnchorLabel anchor linkText = H.a H.! HA.name anchorLink $ anchorText
   where
     anchorLink = H.lazyTextValue anchor
     anchorText = H.preEscapedToHtml linkText
 
-makeAnchorLink :: Text -> Text -> H.Html
+makeAnchorLink :: T.Text -> T.Text -> H.Html
 makeAnchorLink anchorTo linkText = H.a H.! HA.href anchorLink $ anchorText
   where
-    anchorLink = H.lazyTextValue $ L.cons '#' anchorTo
+    anchorLink = H.lazyTextValue $ T.cons '#' anchorTo
     anchorText = H.preEscapedToHtml linkText
 
-tableOfContentsAnchor :: Text
+tableOfContentsAnchor :: T.Text
 tableOfContentsAnchor = "tableofcontents"
 
 tableOfContentsHtml :: Listing -> H.Html
@@ -164,50 +101,93 @@ pageHtml :: Listing -> H.Html
 pageHtml listing = H.docTypeHtml $ do
   H.head $ do
     H.title "Harmonious content"
-    H.meta H.! HA.charset "UTF-8" 
+    H.meta H.! HA.charset "UTF-8"
   H.body $ do
     H.h1 "askreddit"
     H.br
     H.div $ tableOfContentsHtml listing
     H.div $ listingHtml listing
 
-makePage :: Listing -> B.ByteString
-makePage listing = H.renderHtml $ pageHtml listing
+renderListingAsHtml :: Listing -> B.ByteString
+renderListingAsHtml listing = H.renderHtml $ pageHtml listing
+
+instance FromJSON Article where
+  parseJSON = withObject "Article" $ \obj -> do
+    articleData <- obj .: "data"
+    id          <- articleData .: "id"
+    url         <- articleData .: "url"
+    title       <- articleData .:? "title"         .!= "err: noTitle"
+    text        <- articleData .:? "selftext_html" .!= "err: noText"
+    let title' = T.toLazyText . htmlEncodedText $ title
+    let text'  = T.toLazyText . htmlEncodedText $ text
+    return $ Article id url title' undefined text' []
+
+instance FromJSON Listing where
+  parseJSON = withObject "Listing" $ \obj -> do
+    articles <- mapM parseJSON <=< (.: "children") <=< (.: "data") $ obj
+    return $ Listing articles
+
+instance FromJSON Comment where
+  parseJSON = withObject "Comment" $ \obj -> do
+    commentData  <- obj .: "data"
+    id           <- commentData .: "id"
+    author       <- commentData .:? "author"    .!= "err: noAuthor"
+    text         <- commentData .:? "body_html" .!= "err: noText"
+    repliesField <- commentData .:? "replies"   .!= String ""
+    children <- case repliesField of
+      Object repliesObj -> parseCommentsRecursive (Object repliesObj)
+      String _          -> return []
+    let text' = T.toLazyText . htmlEncodedText $ text
+    return $ Comment id author text' children
+
+parseCommentsRecursive :: Value -> Parser [Comment]
+parseCommentsRecursive = withObject "commentReplies" $ \obj ->
+  let parseComments = mapM parseJSON <=< (.: "children") <=< (.: "data") in
+  withObject "CommentRoot" parseComments (Object obj)
+
+parseCommentsSection :: Value -> Parser [Comment]
+parseCommentsSection = withArray "CommentListing" $ \arr ->
+  let commentRoot = arr V.! 1 in
+  parseCommentsRecursive commentRoot
 
 subredditUrl :: StringLike a => a -> String
 subredditUrl subreddit = fullUrl
   where
-    subreddit' = toString subreddit
-    fullUrl = "http://www.reddit.com/r/" ++ subreddit' ++ "/hot.json"
+    fullUrl = "http://www.reddit.com/r/" ++ toString subreddit ++ "/hot.json"
 
-articleCommentsUrl :: StringLike a => a -> String
-articleCommentsUrl articleId = fullUrl
+articleCommentsUrl :: Article -> String
+articleCommentsUrl article = fullUrl
   where
-    articleId' = toString articleId
+    articleId' = toString (aId article)
     fullUrl = "http://www.reddit.com/comments/" ++ articleId' ++ ".json"
 
-downloadSubredditJsonToFile :: String -> String -> IO ()
-downloadSubredditJsonToFile subreddit filename = do
-  subredditJson <- simpleHttp $ subredditUrl subreddit
-  B.writeFile filename subredditJson
+hoistExcept :: (Monad m) => Either s a -> ExceptT s m a
+hoistExcept = ExceptT . return
 
-convertSubredditToHtml :: String -> String -> IO ()
-convertSubredditToHtml subreddit filename = do
-  subredditJson <- simpleHttp $ subredditUrl subreddit
-  listingWithComments <- case eitherDecode subredditJson of
-    Left err -> return $ Left err
-    Right listingNoComments -> let listingNoComments' = lListing listingNoComments in
-                               sequence <$> forM listingNoComments' populateArticleComments
-  let listingWithComments' = Listing <$> listingWithComments
-  writeListingToHtml filename listingWithComments'
+populateArticleComments :: Article -> ExceptT String IO Article
+populateArticleComments article = do
+  articleData <- liftIO $ simpleHttp $ articleCommentsUrl article
+  articleJSON <- hoistExcept $ eitherDecode articleData
+  comments <- hoistExcept $ parseEither parseCommentsSection articleJSON
+  return $ article { aComments = comments }
 
-writeListingToHtml :: String -> Either String Listing -> IO ()
-writeListingToHtml filename listing = case listing of
-  Right result -> B.writeFile filename $ makePage result
+getSubredditListing :: String -> ExceptT String IO Listing
+getSubredditListing subreddit = do
+  subredditData          <- liftIO $ simpleHttp $ subredditUrl subreddit
+  listingWithoutComments <- hoistExcept $ eitherDecode subredditData
+  let listingWithoutComments' = lListing listingWithoutComments
+  return . Listing =<< mapM populateArticleComments listingWithoutComments'
+
+writeListingToHtml :: String -> ExceptT String IO Listing -> IO ()
+writeListingToHtml filename listing = runExceptT listing >>= \case
+  Right result -> B.writeFile filename $ renderListingAsHtml result
   Left error   -> P.putStrLn error
 
---convertSubredditToHtml :: String -> String -> IO ()
---convertSubredditToHtml subreddit filename = do
---  let subredditUrl = "http://www.reddit.com/r/" ++ subreddit ++ "/hot.json"
---  subredditJson <- simpleHttp subredditUrl
---  writeListingToHtml filename $ eitherDecode subredditJson
+downloadSubredditToHtml :: String -> String -> IO ()
+downloadSubredditToHtml subreddit filename =
+  writeListingToHtml filename . getSubredditListing $ subreddit
+
+downloadSubredditToJson :: String -> String -> IO ()
+downloadSubredditToJson subreddit filename = do
+  subredditJson <- simpleHttp $ subredditUrl subreddit
+  B.writeFile filename subredditJson

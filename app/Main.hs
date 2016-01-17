@@ -4,5 +4,7 @@ import Lib
 
 main :: IO ()
 main = do
-  downloadSubredditJsonToFile "askreddit" "/Users/anthony/hot.json"
-  convertSubredditToHtml "askreddit" "/Users/anthony/hot.html"
+  let subreddit = "askreddit"
+  let filename = "/Users/anthony/hot"
+  downloadSubredditToJson subreddit $ filename ++ ".json"
+  downloadSubredditToHtml subreddit $ filename ++ ".html"
