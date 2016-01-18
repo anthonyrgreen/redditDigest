@@ -1,10 +1,11 @@
 module Main where
 
+import System.Environment
 import Lib
 
 main :: IO ()
 main = do
-  let subreddit = "askreddit"
+  args <- getArgs
+  let subreddit = head args
   let filename = "/Users/anthony/hot"
-  downloadSubredditToJson subreddit $ filename ++ ".json"
   downloadSubredditToHtml subreddit $ filename ++ ".html"
