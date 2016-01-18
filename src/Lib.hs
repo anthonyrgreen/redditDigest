@@ -4,7 +4,8 @@ module Lib
     , downloadSubredditToJson
     ) where
 
-import Network.HTTP.Conduit
+import qualified Network.HTTP.Conduit as C
+import Network.HTTP.Client.Conduit
 import Data.Aeson
 import Data.Aeson.Types
 import qualified Data.Vector as V
@@ -24,6 +25,8 @@ import Prelude as P
 import qualified System.IO as IO
 import HTMLEntities.Decoder
 import Control.Monad.Except
+import Control.Monad.Reader
+
 
 
 data Article = Article {
@@ -161,33 +164,37 @@ articleCommentsUrl article = fullUrl
     articleId' = toString (aId article)
     fullUrl = "http://www.reddit.com/comments/" ++ articleId' ++ ".json"
 
-hoistExcept :: (Monad m) => Either s a -> ExceptT s m a
-hoistExcept = ExceptT . return
+hoistEither :: (Monad m) => Either s a -> ReaderT r (ExceptT s m) a
+hoistEither = lift . ExceptT . return
 
-populateArticleComments :: Article -> ExceptT String IO Article
-populateArticleComments article = do
-  articleData <- liftIO $ simpleHttp $ articleCommentsUrl article
-  articleJSON <- hoistExcept $ eitherDecode articleData
-  comments <- hoistExcept $ parseEither parseCommentsSection articleJSON
+getArticleComments :: Article -> ReaderT Manager (ExceptT String IO) Article
+getArticleComments article = do
+  articleReq  <- C.parseUrl $ articleCommentsUrl article
+  articleData <- liftM C.responseBody $ httpLbs articleReq
+  articleJSON <- hoistEither $ eitherDecode articleData
+  comments    <- hoistEither $ parseEither parseCommentsSection articleJSON
   return $ article { aComments = comments }
 
-getSubredditListing :: String -> ExceptT String IO Listing
+getSubredditListing :: String -> ReaderT Manager (ExceptT String IO) Listing
 getSubredditListing subreddit = do
-  subredditData          <- liftIO $ simpleHttp $ subredditUrl subreddit
-  listingWithoutComments <- hoistExcept $ eitherDecode subredditData
-  let listingWithoutComments' = lListing listingWithoutComments
-  return . Listing =<< mapM populateArticleComments listingWithoutComments'
+  listingReq             <- C.parseUrl $ subredditUrl subreddit
+  listingData            <- liftM C.responseBody $ httpLbs listingReq
+  listingWithoutComments <- hoistEither $ eitherDecode listingData
+  liftM Listing $ mapM getArticleComments (lListing listingWithoutComments)
 
-writeListingToHtml :: String -> ExceptT String IO Listing -> IO ()
-writeListingToHtml filename listing = runExceptT listing >>= \case
-  Right result -> B.writeFile filename $ renderListingAsHtml result
-  Left error   -> P.putStrLn error
+writeListingToHtml :: String -> Listing -> IO ()
+writeListingToHtml filename listing = B.writeFile filename renderedHtml
+  where
+    renderedHtml = renderListingAsHtml listing
 
 downloadSubredditToHtml :: String -> String -> IO ()
-downloadSubredditToHtml subreddit filename =
-  writeListingToHtml filename . getSubredditListing $ subreddit
+downloadSubredditToHtml subreddit filename = result >>= \case
+  Right listing -> writeListingToHtml filename listing
+  Left error    -> P.putStrLn error
+  where
+    result = runExceptT . withManager . getSubredditListing $ subreddit
 
 downloadSubredditToJson :: String -> String -> IO ()
 downloadSubredditToJson subreddit filename = do
-  subredditJson <- simpleHttp $ subredditUrl subreddit
+  subredditJson <- C.simpleHttp $ subredditUrl subreddit
   B.writeFile filename subredditJson
