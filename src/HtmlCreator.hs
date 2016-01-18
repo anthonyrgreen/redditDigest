@@ -3,28 +3,17 @@ module HtmlCreator
     ( renderListingAsHtml
     ) where
 
-import qualified Network.HTTP.Conduit as C
-import Network.HTTP.Client.Conduit
-import Data.Aeson
-import Data.Aeson.Types
-import qualified Data.Vector as V
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Text.Lazy as T
 import qualified Data.Text.Lazy.Encoding as T
 import qualified Data.Text.Lazy.IO as T
 import qualified Data.Text.Lazy.Builder as T
 import qualified Data.ByteString.Lazy as B
-import Text.StringLike
 import Control.Monad
 import qualified Text.Blaze.Html as H
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html.Renderer.Utf8 as H
 import qualified Text.Blaze.Html5.Attributes as HA
-import Prelude as P
-import qualified System.IO as IO
 import HTMLEntities.Decoder
-import Control.Monad.Except
-import Control.Monad.Reader
 import Internal
 
 articleHtml :: Article -> H.Html
@@ -36,7 +25,7 @@ articleHtml article = do
   H.div $ do
     H.h3 $ makeAnchorLabel articleId articleTitle
     H.p  $ H.preEscapedToHtml articleText
-    unless (P.null articleComments) $ H.ul $ mapM_ commentHtml articleComments
+    unless (null articleComments) $ H.ul $ mapM_ commentHtml articleComments
     H.p  $ makeAnchorLink articleId "back to top of story"
     H.p  $ makeAnchorLink tableOfContentsAnchor "back to table of contents"
   H.br
@@ -49,7 +38,7 @@ commentHtml comment = do
   H.li $ do
     H.h6 author
     H.p text
-    unless (P.null children) $ H.ul $ forM_ children $ \com ->
+    unless (null children) $ H.ul $ forM_ children $ \com ->
       commentHtml com
 
 listingHtml :: Listing -> H.Html

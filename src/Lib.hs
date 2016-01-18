@@ -7,8 +7,6 @@ module Lib
 import qualified Network.HTTP.Conduit as C
 import Network.HTTP.Client.Conduit
 import qualified Data.ByteString.Lazy as B
-import Data.Aeson
-import Data.Aeson.Types
 import Text.StringLike
 import Control.Monad
 import Prelude as P
@@ -34,23 +32,20 @@ hoistEither = lift . ExceptT . return
 
 getArticleComments :: Article -> ReaderT Manager (ExceptT String IO) Article
 getArticleComments article = do
-  articleReq  <- C.parseUrl $ articleCommentsUrl article
-  articleData <- liftM C.responseBody $ httpLbs articleReq
-  articleJSON <- hoistEither $ eitherDecode articleData
-  comments    <- hoistEither $ parseEither parseCommentsSection articleJSON
-  return $ article { aComments = comments }
+  articleReq      <- C.parseUrl $ articleCommentsUrl article
+  articleRes      <- liftM C.responseBody $ httpLbs articleReq
+  articleComments <- hoistEither $ parseComments articleRes
+  return $ article { aComments = articleComments }
 
 getSubredditListing :: String -> ReaderT Manager (ExceptT String IO) Listing
 getSubredditListing subreddit = do
   listingReq             <- C.parseUrl $ subredditUrl subreddit
-  listingData            <- liftM C.responseBody $ httpLbs listingReq
-  listingWithoutComments <- hoistEither $ eitherDecode listingData
+  listingRes             <- liftM C.responseBody $ httpLbs listingReq
+  listingWithoutComments <- hoistEither $ parseListing listingRes
   liftM Listing $ mapM getArticleComments (lListing listingWithoutComments)
 
 writeListingToHtml :: String -> Listing -> IO ()
-writeListingToHtml filename listing = B.writeFile filename renderedHtml
-  where
-    renderedHtml = renderListingAsHtml listing
+writeListingToHtml filename = B.writeFile filename . renderListingAsHtml
 
 downloadSubredditToHtml :: String -> String -> IO ()
 downloadSubredditToHtml subreddit filename = result >>= \case

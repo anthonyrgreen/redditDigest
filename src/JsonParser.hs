@@ -1,10 +1,12 @@
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables, LambdaCase #-}
 module JsonParser
-    ( parseCommentsSection
+    ( parseListing
+    , parseComments
     ) where
 
 import Data.Aeson
 import Data.Aeson.Types
+import Data.ByteString.Lazy
 import qualified Data.Vector as V
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text.Lazy as T
@@ -49,7 +51,13 @@ parseCommentsRecursive = withObject "commentReplies" $ \obj ->
   let parseComments = mapM parseJSON <=< (.: "children") <=< (.: "data") in
   withObject "CommentRoot" parseComments (Object obj)
 
-parseCommentsSection :: Value -> Parser [Comment]
-parseCommentsSection = withArray "CommentListing" $ \arr ->
+commentsParser :: Value -> Parser [Comment]
+commentsParser = withArray "CommentListing" $ \arr ->
   let commentRoot = arr V.! 1 in
   parseCommentsRecursive commentRoot
+
+parseListing :: ByteString -> Either String Listing
+parseListing = eitherDecode
+
+parseComments :: ByteString -> Either String [Comment]
+parseComments = parseEither commentsParser <=< eitherDecode
