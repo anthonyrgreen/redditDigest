@@ -1,4 +1,4 @@
-module Internal
+module Types
     ( Article (..)
     , Comment (..)
     , Listing (..)

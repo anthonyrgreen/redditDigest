@@ -15,7 +15,7 @@ import qualified Data.Text.Lazy.IO as T
 import qualified Data.Text.Lazy.Builder as T
 import Control.Monad
 import HTMLEntities.Decoder
-import Internal
+import Types
 
 instance FromJSON Article where
   parseJSON = withObject "Article" $ \obj -> do
@@ -24,9 +24,10 @@ instance FromJSON Article where
     url         <- articleData .: "url"
     title       <- articleData .:? "title"         .!= "err: noTitle"
     text        <- articleData .:? "selftext_html" .!= "err: noText"
+    author      <- articleData .:? "author"        .!= "err: noAuthor"
     let title' = T.toLazyText . htmlEncodedText $ title
     let text'  = T.toLazyText . htmlEncodedText $ text
-    return $ Article id url title' undefined text' []
+    return $ Article id url title' author text' []
 
 instance FromJSON Listing where
   parseJSON = withObject "Listing" $ \obj -> do

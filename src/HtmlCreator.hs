@@ -3,18 +3,27 @@ module HtmlCreator
     ( renderListingAsHtml
     ) where
 
-import qualified Data.Text.Lazy as T
-import qualified Data.Text.Lazy.Encoding as T
-import qualified Data.Text.Lazy.IO as T
-import qualified Data.Text.Lazy.Builder as T
 import qualified Data.ByteString.Lazy as B
-import Control.Monad
+import Clay
+import Clay.Common
+import Clay.List
 import qualified Text.Blaze.Html as H
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html.Renderer.Utf8 as H
 import qualified Text.Blaze.Html5.Attributes as HA
+import qualified Data.Text.Lazy as T
+import qualified Data.Text.Lazy.Encoding as T
+import qualified Data.Text.Lazy.IO as T
+import qualified Data.Text.Lazy.Builder as T
+import Control.Monad
 import HTMLEntities.Decoder
-import Internal
+import Types
+
+noBulletPointsCSS :: Css
+noBulletPointsCSS = ul ? listStyleType none
+
+articleCSS :: T.Text
+articleCSS = render noBulletPointsCSS
 
 articleHtml :: Article -> H.Html
 articleHtml article = do
@@ -22,8 +31,10 @@ articleHtml article = do
   let articleId = aId article
   let articleText = aText article
   let articleComments = aComments article
+  let articleAuthor = H.toHtml $ aAuthor article
   H.div $ do
     H.h3 $ makeAnchorLabel articleId articleTitle
+    H.h6 articleAuthor
     H.p  $ H.preEscapedToHtml articleText
     unless (null articleComments) $ H.ul $ mapM_ commentHtml articleComments
     H.p  $ makeAnchorLink articleId "back to top of story"
@@ -72,6 +83,7 @@ pageHtml listing = H.docTypeHtml $ do
   H.head $ do
     H.title "Harmonious content"
     H.meta H.! HA.charset "UTF-8"
+    H.style $ H.toHtml articleCSS
   H.body $ do
     H.h1 "askreddit"
     H.br

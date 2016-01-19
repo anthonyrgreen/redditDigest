@@ -13,7 +13,7 @@ import Prelude as P
 import Control.Monad.Except
 import Control.Monad.Reader
 import HtmlCreator
-import Internal
+import Types
 import JsonParser
 
 subredditUrl :: StringLike a => a -> String
