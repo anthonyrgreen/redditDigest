@@ -7,5 +7,5 @@ main :: IO ()
 main = do
   args <- getArgs
   let subreddit = head args
-  let filename = "/Users/anthony/hot"
-  downloadSubredditToHtml subreddit $ filename ++ ".html"
+  let filename = "/Users/anthony/hot.html"
+  downloadSubredditToHtml subreddit filename
