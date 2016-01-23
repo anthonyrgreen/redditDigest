@@ -30,9 +30,8 @@ instance FromJSON Article where
     return $ Article id url title' author text' []
 
 instance FromJSON Listing where
-  parseJSON = withObject "Listing" $ \obj -> do
-    articles <- mapM parseJSON <=< (.: "children") <=< (.: "data") $ obj
-    return $ Listing articles
+  parseJSON = withObject "Listing" $
+    liftM Listing . mapM parseJSON <=< (.: "children") <=< (.: "data")
 
 instance FromJSON Comment where
   parseJSON = withObject "Comment" $ \obj -> do

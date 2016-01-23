@@ -44,12 +44,9 @@ getSubredditListing subreddit = do
   listingWithoutComments <- hoistEither $ parseListing listingRes
   liftM Listing $ mapM getArticleComments (lListing listingWithoutComments)
 
-writeListingToHtml :: String -> Listing -> IO ()
-writeListingToHtml filename = B.writeFile filename . renderListingAsHtml
-
-downloadSubredditToHtml :: String -> String -> IO ()
-downloadSubredditToHtml subreddit filename = result >>= \case
-  Right listing -> writeListingToHtml filename listing
+downloadSubredditToHtml :: String -> String -> String -> IO ()
+downloadSubredditToHtml subreddit filename title = result >>= \case
+  Right listing -> B.writeFile filename . renderListingAsHtml listing $ title
   Left error    -> P.putStrLn error
   where
     result = runExceptT . withManager . getSubredditListing $ subreddit

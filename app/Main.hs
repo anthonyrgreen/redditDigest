@@ -5,7 +5,6 @@ import Lib
 
 main :: IO ()
 main = do
-  args <- getArgs
-  let subreddit = head args
+  [subreddit, title] <- getArgs
   let filename = "/Users/anthony/hot.html"
-  downloadSubredditToHtml subreddit filename
+  downloadSubredditToHtml subreddit filename title

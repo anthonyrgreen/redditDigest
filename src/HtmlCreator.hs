@@ -7,6 +7,8 @@ import qualified Data.ByteString.Lazy as B
 import Clay
 import Clay.Common
 import Clay.List
+import Clay.Geometry
+import Clay.Size
 import qualified Text.Blaze.Html as H
 import qualified Text.Blaze.Html5 as H
 import qualified Text.Blaze.Html.Renderer.Utf8 as H
@@ -18,12 +20,21 @@ import qualified Data.Text.Lazy.Builder as T
 import Control.Monad
 import HTMLEntities.Decoder
 import Types
+import Prelude hiding (div)
+
+mainColumnCenteredCSS :: Css
+mainColumnCenteredCSS = div # byId "main-column" ? do
+  marginLeft auto
+  marginRight auto
+  width $ pct 50
 
 noBulletPointsCSS :: Css
 noBulletPointsCSS = ul ? listStyleType none
 
 articleCSS :: T.Text
-articleCSS = render noBulletPointsCSS
+articleCSS = render $ do
+  noBulletPointsCSS
+  mainColumnCenteredCSS
 
 articleHtml :: Article -> H.Html
 articleHtml article = do
@@ -78,17 +89,18 @@ tableOfContentsHtml listing = do
   H.ul $ forM_ (lListing listing) $ \article ->
     H.li $ makeAnchorLink (aId article) (aTitle article)
 
-pageHtml :: Listing -> H.Html
-pageHtml listing = H.docTypeHtml $ do
+pageHtml :: H.ToMarkup a => Listing -> a -> H.Html
+pageHtml listing title = H.docTypeHtml $ do
   H.head $ do
     H.title "Harmonious content"
     H.meta H.! HA.charset "UTF-8"
     H.style $ H.toHtml articleCSS
-  H.body $ do
-    H.h1 "askreddit"
-    H.br
-    H.div $ tableOfContentsHtml listing
-    H.div $ listingHtml listing
+  H.body $
+    H.div H.! HA.id "main-column" $ do
+      H.h1 $ H.toHtml title
+      H.br
+      H.div $ tableOfContentsHtml listing
+      H.div $ listingHtml listing
 
-renderListingAsHtml :: Listing -> B.ByteString
-renderListingAsHtml listing = H.renderHtml $ pageHtml listing
+renderListingAsHtml :: H.ToMarkup a => Listing -> a ->  B.ByteString
+renderListingAsHtml listing title = H.renderHtml $ pageHtml listing title
